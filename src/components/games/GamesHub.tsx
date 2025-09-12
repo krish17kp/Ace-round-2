@@ -14,7 +14,7 @@ import {
   Zap,
   Star
 } from "lucide-react";
-import { PerceptionTest } from "./PerceptionTest";
+import { PerceptionTest } from "../Perception";
 import { ShadowGame } from "./ShadowGame";
 import { FlashcardGame } from "./FlashcardGame";
 import { WorldExplorer } from "./WorldExplorer";

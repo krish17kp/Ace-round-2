@@ -1,0 +1,11 @@
+fastapi>=0.110
+uvicorn[standard]>=0.22
+transformers>=4.36
+torch>=2.1; platform_system != 'Darwin' or platform_machine != 'arm64'
+numpy>=1.23
+scipy>=1.10
+python-multipart>=0.0.9
+librosa>=0.10.0
+soundfile>=0.12.1
+tensorflow-cpu>=2.12
+kagglehub>=0.2.5
