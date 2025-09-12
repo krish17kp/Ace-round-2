@@ -54,6 +54,14 @@ export const HomePage = ({ onNavigate }: HomePageProps) => {
       icon: PenTool,
       color: 'bg-orange-500',
       gradient: 'from-orange-500 to-orange-600'
+    },
+    {
+      id: 'games',
+      title: 'EQ Training Games',
+      description: 'Interactive games to enhance perception, empathy, and focus',
+      icon: Target,
+      color: 'bg-pink-500',
+      gradient: 'from-pink-500 to-pink-600'
     }
   ];
 
@@ -132,7 +140,7 @@ export const HomePage = ({ onNavigate }: HomePageProps) => {
       {/* Features Grid */}
       <div>
         <h2 className="text-2xl font-bold mb-6 text-center">Explore EQ Analysis Tools</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {features.map((feature) => {
             const Icon = feature.icon;
             return (

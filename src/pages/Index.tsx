@@ -6,6 +6,9 @@ import { VoiceAnalyzer } from "@/components/VoiceAnalyzer";
 import { EQAssessment } from "@/components/EQAssessment";
 import { TextJournal } from "@/components/TextJournal";
 import { ProgressDashboard } from "@/components/ProgressDashboard";
+import { GamesHub } from "@/components/games/GamesHub";
+import { Chatbot } from "@/components/Chatbot";
+import { ClinicFinder } from "@/components/ClinicFinder";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('home');
@@ -22,6 +25,12 @@ const Index = () => {
         return <EQAssessment />;
       case 'journal':
         return <TextJournal />;
+      case 'games':
+        return <GamesHub onNavigate={setActiveTab} />;
+      case 'chatbot':
+        return <Chatbot />;
+      case 'clinics':
+        return <ClinicFinder />;
       case 'dashboard':
         return <ProgressDashboard />;
       default:

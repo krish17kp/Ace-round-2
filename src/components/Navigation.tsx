@@ -9,6 +9,9 @@ import {
   PenTool, 
   BarChart3, 
   Home, 
+  Target,
+  MessageCircle,
+  MapPin,
   Menu,
   X
 } from "lucide-react";
@@ -27,6 +30,9 @@ export const Navigation = ({ activeTab, onTabChange }: NavigationProps) => {
     { id: 'voice', label: 'Voice', icon: Mic, description: 'Voice Analysis' },
     { id: 'assessment', label: 'Assessment', icon: Brain, description: 'EQ Test' },
     { id: 'journal', label: 'Journal', icon: PenTool, description: 'Text Analysis' },
+    { id: 'games', label: 'Games', icon: Target, description: 'EQ Training Games' },
+    { id: 'chatbot', label: 'AI Chat', icon: MessageCircle, description: 'AI Companion' },
+    { id: 'clinics', label: 'Find Help', icon: MapPin, description: 'Find Clinics' },
     { id: 'dashboard', label: 'Progress', icon: BarChart3, description: 'Analytics' },
   ];
 
@@ -149,7 +155,7 @@ export const Navigation = ({ activeTab, onTabChange }: NavigationProps) => {
       {/* Mobile Bottom Navigation */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t z-40">
         <div className="flex items-center justify-around py-2">
-          {navItems.slice(0, 5).map((item) => {
+          {navItems.slice(0, 6).map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             
