@@ -1,328 +1,235 @@
-import { useState } from "react";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { ArrowLeft, Globe, MapPin, Trophy, RotateCcw, Eye } from "lucide-react";
+import React, { useState, useEffect } from "react";
 
-interface WorldExplorerProps {
-  onBack: () => void;
-}
+// --- UI Components ---
+const Card = ({ className, children }) => (
+  <div className={`border rounded-xl shadow-sm bg-white ${className}`}>{children}</div>
+);
+const Button = ({ className, variant, size, children, ...props }) => {
+  const baseClasses =
+    "inline-flex items-center justify-center rounded-md text-sm font-medium transition-transform duration-200 active:scale-95 disabled:opacity-60 disabled:pointer-events-none";
+  const sizeClasses = { icon: "h-10 w-10", lg: "h-12 px-8 text-base", default: "h-10 px-4 py-2" };
+  const variantClasses = {
+    hero: "bg-blue-600 text-white hover:bg-blue-700 shadow-md",
+    outline: "border border-gray-300 bg-transparent hover:bg-gray-100",
+    ghost: "hover:bg-gray-100",
+    default: "",
+  };
+  return (
+    <button
+      {...props}
+      className={`${baseClasses} ${sizeClasses[size] || sizeClasses.default} ${
+        variantClasses[variant] || variantClasses.default
+      } ${className}`}
+    >
+      {children}
+    </button>
+  );
+};
+const Badge = ({ className, children }) => (
+  <div
+    className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${className}`}
+  >
+    {children}
+  </div>
+);
 
-export const WorldExplorer = ({ onBack }: WorldExplorerProps) => {
-  const [currentRound, setCurrentRound] = useState(1);
+// --- SVG Icons ---
+const ArrowLeft = (props) => (
+  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m12 19-7-7 7-7" />
+    <path d="M19 12H5" />
+  </svg>
+);
+const Trophy = (props) => (
+  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+    <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+    <path d="M4 22h16" />
+    <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+    <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
+    <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+  </svg>
+);
+const RotateCcw = (props) => (
+  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+    <path d="M3 3v5h5" />
+  </svg>
+);
+
+// --- Location Data ---
+const LOCATIONS = [
+  { location: "Mukesh Patel School of Technology, Mumbai", image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSMXt3i407g9JsjuaoMRpd1xSK-9oR5nP4xew&s" },
+  { location: "NMIMS University Main Gate, Vile Parle", image: "https://www.nmims.edu/images/home-slide/m-school-1.jpg" },
+  { location: "Gateway of India, Mumbai", image: "https://lp-cms-production.imgix.net/2019-06/bbc886323ff07d295157ea35f423e121-gateway-of-india.jpg" },
+  { location: "Juhu Beach, Mumbai", image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSOk-fFj9pzK2gsliVN0Z9Ff-A9LA_oxxiwRQ&s" },
+  { location: "Marine Drive, Mumbai", image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRX6KbRVFYtYBiPlvbXghwjMVi8tEm6QzDdeg&s" },
+  { location: "Siddhivinayak Temple, Prabhadevi", image: "https://www.mapsofindia.com/ci-moi-images/my-india/siddhivinayak-temple-mumbai.jpg" },
+];
+
+const shuffleAndPick = (arr, num) => [...arr].sort(() => 0.5 - Math.random()).slice(0, num);
+
+// --- Game Component ---
+export const WorldExplorer = ({ onBack }) => {
+  const [gameState, setGameState] = useState("playing");
+  const [rounds, setRounds] = useState([]);
+  const [currentRound, setCurrentRound] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
-  const [gameComplete, setGameComplete] = useState(false);
-  const [showResults, setShowResults] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [hasApiKey, setHasApiKey] = useState(false);
+  const [roundResult, setRoundResult] = useState(null);
+  const [guessText, setGuessText] = useState("");
 
-  const rounds = [
-    {
-      id: 1,
-      location: "Times Square, New York",
-      coords: { lat: 40.7580, lng: -73.9855 },
-      description: "A bustling commercial intersection and neighborhood"
-    },
-    {
-      id: 2,
-      location: "Eiffel Tower, Paris",
-      coords: { lat: 48.8584, lng: 2.2945 },
-      description: "Famous iron lattice tower on the Champ de Mars"
-    },
-    {
-      id: 3,
-      location: "Shibuya Crossing, Tokyo",
-      coords: { lat: 35.6598, lng: 139.7006 },
-      description: "One of the busiest pedestrian crossings in the world"
-    },
-    {
-      id: 4,
-      location: "Big Ben, London",
-      coords: { lat: 51.5007, lng: -0.1246 },
-      description: "The nickname for the Great Bell of the clock"
-    },
-    {
-      id: 5,
-      location: "Sydney Opera House, Australia",
-      coords: { lat: -33.8568, lng: 151.2153 },
-      description: "Multi-venue performing arts centre"
-    }
-  ];
+  useEffect(() => {
+    startGame();
+  }, []);
 
-  const handleApiKeySubmit = () => {
-    if (apiKey.trim()) {
-      setHasApiKey(true);
-    }
+  const startGame = () => {
+    setRounds(shuffleAndPick(LOCATIONS, 5));
+    setCurrentRound(0);
+    setTotalScore(0);
+    setGameState("playing");
+    setRoundResult(null);
+    setGuessText("");
   };
 
-  const calculateScore = (distance: number) => {
-    // Score calculation based on distance (closer = higher score)
-    if (distance < 50) return 5000;
-    if (distance < 200) return 4000;
-    if (distance < 500) return 3000;
-    if (distance < 1000) return 2000;
-    if (distance < 2000) return 1000;
-    return 500;
+  const handleGuess = () => {
+    const actual = rounds[currentRound].location.toLowerCase();
+    const guess = guessText.trim().toLowerCase();
+
+    const isCorrect = actual.includes(guess) || guess.includes(actual);
+    const score = isCorrect ? 5000 : 1000;
+
+    setTotalScore((prev) => prev + score);
+    setRoundResult({ correct: isCorrect, score, correctAnswer: rounds[currentRound].location });
+    setGameState("round-result");
   };
 
   const nextRound = () => {
-    if (currentRound >= 5) {
-      setGameComplete(true);
-      setShowResults(true);
+    if (currentRound >= 4) {
+      setGameState("game-over");
     } else {
-      setCurrentRound(prev => prev + 1);
+      setCurrentRound((prev) => prev + 1);
+      setGameState("playing");
+      setRoundResult(null);
+      setGuessText("");
     }
   };
 
-  const resetGame = () => {
-    setCurrentRound(1);
-    setTotalScore(0);
-    setGameComplete(false);
-    setShowResults(false);
-  };
-
-  // API Key Input Screen
-  if (!hasApiKey) {
+  // --- Render ---
+  if (gameState === "game-over") {
     return (
-      <div className="space-y-6">
-        <Card className="p-6 gradient-card shadow-soft">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={onBack}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold">World Explorer Setup</h1>
-              <p className="text-muted-foreground">Configure your Google Maps API</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-8 gradient-card shadow-emotion">
-          <div className="max-w-2xl mx-auto space-y-6 text-center">
-            <div className="flex justify-center mb-6">
-              <div className="p-4 rounded-full gradient-wellness shadow-glow">
-                <Globe className="h-12 w-12 text-white" />
-              </div>
-            </div>
-
-            <div>
-              <h2 className="text-3xl font-bold mb-4">Enter Google Maps API Key</h2>
-              <p className="text-muted-foreground mb-6">
-                To play World Explorer, you need a Google Maps API key with Street View enabled.
-                Get yours at <a href="https://developers.google.com/maps" className="text-primary underline" target="_blank" rel="noopener noreferrer">Google Maps Platform</a>
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <Input
-                type="password"
-                placeholder="Enter your Google Maps API key"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="text-center"
-              />
-              
-              <Button 
-                onClick={handleApiKeySubmit}
-                variant="hero"
-                size="lg"
-                disabled={!apiKey.trim()}
-                className="shadow-glow"
-              >
-                Start Game
-              </Button>
-            </div>
-
-            <Card className="p-4 bg-yellow-50 border-yellow-200 text-left">
-              <p className="text-sm text-yellow-800">
-                <strong>Note:</strong> This is a demo version. In a production environment, 
-                the API key would be securely stored on the server side.
-              </p>
-            </Card>
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
-  // Game Complete Screen
-  if (gameComplete && showResults) {
-    return (
-      <div className="space-y-6">
-        <Card className="p-6 gradient-card shadow-soft">
+      <div className="space-y-6 animate-fade-in">
+        <Card className="p-6">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button variant="ghost" size="icon" onClick={onBack}>
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold">World Explorer Complete!</h1>
-                <p className="text-muted-foreground">Your global exploration results</p>
-              </div>
-            </div>
-            <Badge variant="outline" className="flex items-center gap-2">
-              <Trophy className="h-4 w-4" />
-              Total: {totalScore}
+            <h1 className="text-2xl font-bold">Game Over!</h1>
+            <Badge>
+              <Trophy className="h-4 w-4 mr-2" /> Total Score: {totalScore.toLocaleString()}
             </Badge>
           </div>
         </Card>
-
-        <Card className="p-8 gradient-card shadow-emotion text-center">
-          <div className="space-y-6">
-            <div className="flex justify-center mb-6">
-              <div className="p-4 rounded-full gradient-wellness shadow-glow">
-                <Globe className="h-12 w-12 text-white" />
-              </div>
-            </div>
-
-            <div>
-              <h2 className="text-3xl font-bold mb-4">Global Explorer</h2>
-              <p className="text-xl text-muted-foreground mb-6">
-                Final Score: <span className="font-bold text-primary">{totalScore.toLocaleString()} points</span>
-              </p>
-              <p className="text-muted-foreground">
-                {totalScore >= 20000 ? "Outstanding! You have excellent observation skills and world knowledge." :
-                 totalScore >= 15000 ? "Great job! You demonstrate good geographic awareness." :
-                 totalScore >= 10000 ? "Good effort! Continue exploring to improve your skills." :
-                 "Keep practicing! World knowledge grows with exploration."}
-              </p>
-            </div>
-
-            <Card className="p-6 bg-gradient-to-br from-primary/5 to-primary-glow/5 border-primary/20">
-              <h3 className="font-semibold mb-2">Skills Developed</h3>
-              <div className="flex flex-wrap gap-2 justify-center">
-                <Badge variant="outline">Visual Observation</Badge>
-                <Badge variant="outline">Geographic Knowledge</Badge>
-                <Badge variant="outline">Cultural Awareness</Badge>
-                <Badge variant="outline">Critical Thinking</Badge>
-              </div>
-            </Card>
-
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button onClick={resetGame} variant="outline" size="lg">
-                <RotateCcw className="h-5 w-5 mr-2" />
-                Play Again
-              </Button>
-              <Button onClick={onBack} variant="hero" size="lg">
-                Back to Games
-              </Button>
-            </div>
+        <Card className="p-8 text-center">
+          <Trophy className="h-16 w-16 mx-auto mb-4 text-yellow-500" />
+          <h2 className="text-3xl font-bold mb-2">Final Score: {totalScore.toLocaleString()}</h2>
+          <p className="text-gray-500 mb-6 max-w-md mx-auto">
+            {totalScore >= 20000
+              ? "Amazing! You're a true Mumbaikar!"
+              : totalScore >= 15000
+              ? "Great job! You know your way around the city."
+              : "Good effort! Keep exploring to sharpen your skills."}
+          </p>
+          <div className="flex gap-4 justify-center">
+            <Button onClick={startGame} variant="outline" size="lg">
+              <RotateCcw className="h-5 w-5 mr-2" /> Play Again
+            </Button>
+            <Button onClick={onBack} variant="hero" size="lg">
+              Back to Games
+            </Button>
           </div>
         </Card>
       </div>
     );
   }
 
-  // Main Game Interface
-  const currentLocation = rounds[currentRound - 1];
+  const currentLoc = rounds[currentRound];
+  if (!currentLoc) return <div className="text-center p-8 text-gray-600">Loading Game...</div>;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <Card className="p-6 gradient-card shadow-soft">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+    <div className="space-y-6 animate-fade-in">
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" onClick={onBack}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div>
-              <h1 className="text-2xl font-bold">World Explorer</h1>
-              <p className="text-muted-foreground">Guess the location from Street View</p>
-            </div>
+            <h1 className="text-xl font-bold">Mumbai Explorer (Demo)</h1>
           </div>
           <div className="flex items-center gap-4">
-            <Badge variant="outline">Round {currentRound}/5</Badge>
-            <Badge variant="outline" className="flex items-center gap-2">
-              <Trophy className="h-4 w-4" />
+            <Badge>Round {currentRound + 1}/5</Badge>
+            <Badge>
+              <Trophy className="h-4 w-4 mr-1" />
               {totalScore.toLocaleString()}
             </Badge>
           </div>
         </div>
       </Card>
 
-      {/* Game Interface */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Street View Panel */}
-        <Card className="p-6 gradient-card shadow-emotion">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-4">
-              <Eye className="h-5 w-5 text-primary" />
-              <h3 className="text-lg font-semibold">Street View</h3>
-            </div>
-            
-            {/* Demo Street View Image */}
-            <div className="aspect-video bg-gradient-to-br from-blue-400 via-blue-500 to-blue-600 rounded-lg flex items-center justify-center text-white">
-              <div className="text-center">
-                <Globe className="h-16 w-16 mx-auto mb-4 opacity-80" />
-                <p className="text-xl font-semibold mb-2">Street View Demo</p>
-                <p className="text-sm opacity-90">
-                  Location: {currentLocation.location}
-                </p>
-                <p className="text-xs mt-2 opacity-75">
-                  In the real game, this would show a Google Street View panorama
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="flex-1">
-                <MapPin className="h-4 w-4 mr-2" />
-                Move
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1">
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Rotate
-              </Button>
-            </div>
+        {/* Street View */}
+        <Card className="p-4 space-y-2">
+          <h3 className="font-semibold flex items-center gap-2">
+            <span className="text-blue-500">📷</span> Street View
+          </h3>
+          <div className="w-full aspect-video rounded-lg overflow-hidden bg-gray-200">
+            <img
+              key={currentLoc.image}
+              src={currentLoc.image}
+              alt={currentLoc.location}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                e.currentTarget.src = "https://placehold.co/600x400/EEE/31343C?text=Image+Not+Found";
+              }}
+            />
           </div>
         </Card>
 
-        {/* Map and Controls */}
-        <Card className="p-6 gradient-card shadow-emotion">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-4">
-              <MapPin className="h-5 w-5 text-primary" />
-              <h3 className="text-lg font-semibold">Make Your Guess</h3>
-            </div>
-            
-            {/* Demo World Map */}
-            <div className="aspect-video bg-gradient-to-br from-green-400 via-blue-400 to-blue-500 rounded-lg flex items-center justify-center text-white relative">
-              <div className="text-center">
-                <Globe className="h-16 w-16 mx-auto mb-4 opacity-80" />
-                <p className="text-xl font-semibold mb-2">World Map</p>
-                <p className="text-sm opacity-90">Click to place your guess</p>
-                <p className="text-xs mt-2 opacity-75">
-                  In the real game, this would be an interactive world map
-                </p>
-              </div>
-              
-              {/* Demo pin */}
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                <div className="w-6 h-6 bg-red-500 rounded-full border-2 border-white shadow-lg"></div>
-              </div>
-            </div>
+        {/* Guess Input */}
+        <Card className="p-4 space-y-2">
+          <h3 className="font-semibold flex items-center gap-2">✍️ Type Your Guess</h3>
+          <input
+            type="text"
+            placeholder="Enter location name..."
+            value={guessText}
+            onChange={(e) => setGuessText(e.target.value)}
+            className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
 
-            {/* Demo Results */}
-            <Card className="p-4 bg-gradient-to-br from-primary/5 to-primary-glow/5 border-primary/20">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground mb-2">Demo Results:</p>
-                <p className="font-semibold">Distance: 1,247 km</p>
-                <p className="text-primary font-bold">+2,500 points</p>
-              </div>
-            </Card>
-
-            <Button 
-              onClick={nextRound}
-              variant="hero"
-              size="lg"
-              className="w-full shadow-glow"
-            >
-              {currentRound >= 5 ? 'View Final Results' : 'Next Round'}
+          {gameState === "playing" && (
+            <Button onClick={handleGuess} disabled={!guessText.trim()} className="w-full" size="lg" variant="hero">
+              Submit Guess
             </Button>
-          </div>
+          )}
+
+          {gameState === "round-result" && roundResult && (
+            <div className="text-center p-4 bg-blue-50 rounded-lg animate-fade-in">
+              {roundResult.correct ? (
+                <p className="text-green-600 font-bold">✅ Correct! +{roundResult.score} points</p>
+              ) : (
+                <p className="text-red-600 font-bold">❌ Wrong! +{roundResult.score} points</p>
+              )}
+              <p className="text-sm mt-2">
+                Correct answer: <strong>{roundResult.correctAnswer}</strong>
+              </p>
+              <Button onClick={nextRound} className="w-full mt-4" size="lg" variant="hero">
+                {currentRound >= 4 ? "View Final Results" : "Next Round"}
+              </Button>
+            </div>
+          )}
         </Card>
       </div>
     </div>
   );
 };
+
+export default WorldExplorer;

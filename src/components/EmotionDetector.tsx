@@ -19,18 +19,18 @@ export const EmotionDetector = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const analysisIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // In the browser, setInterval returns a number
+  const analysisIntervalRef = useRef<number | null>(null);
 
-  const emotions = ['happy', 'sad', 'angry', 'surprised', 'fearful', 'neutral'];
+  const emotions = ["happy", "sad", "angry", "surprised", "fearful", "neutral"] as const;
 
-  // Mock emotion detection (in a real app, you'd use ML models like face-api.js)
+  // Mock emotion detection (replace with real ML like face-api.js)
   const analyzeEmotion = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
-    const ctx = canvas.getContext('2d');
-    
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     // Draw current frame to canvas for analysis
@@ -38,62 +38,61 @@ export const EmotionDetector = () => {
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
 
-    // Mock emotion detection with random results (replace with real ML model)
+    // Mock detection
     const emotion = emotions[Math.floor(Math.random() * emotions.length)];
-    const confidence = 0.6 + Math.random() * 0.4; // 60-100% confidence
+    const confidence = 0.6 + Math.random() * 0.4; // 60–100%
 
     const emotionData: EmotionData = {
       emotion,
       confidence,
-      timestamp: new Date()
+      timestamp: new Date(),
     };
 
     setCurrentEmotion(emotionData);
-    setEmotionHistory(prev => [...prev.slice(-9), emotionData]); // Keep last 10 readings
-  }, [emotions]);
+    setEmotionHistory((prev) => [...prev.slice(-9), emotionData]); // keep last 10
+  }, []);
 
   const startCamera = async () => {
     try {
       setIsAnalyzing(true);
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
           width: { ideal: 640 },
           height: { ideal: 480 },
-          facingMode: 'user'
-        } 
+          facingMode: "user",
+        },
       });
-      
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
-        
         videoRef.current.onloadedmetadata = () => {
           setIsActive(true);
           setIsAnalyzing(false);
           toast.success("Camera activated! Emotion detection starting...");
-          
+
           // Start emotion analysis every 2 seconds
-          analysisIntervalRef.current = setInterval(analyzeEmotion, 2000);
+          analysisIntervalRef.current = window.setInterval(analyzeEmotion, 2000);
         };
       }
     } catch (error) {
       setIsAnalyzing(false);
-      console.error('Error accessing camera:', error);
+      console.error("Error accessing camera:", error);
       toast.error("Camera access denied. Please allow camera permissions.");
     }
   };
 
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    
-    if (analysisIntervalRef.current) {
-      clearInterval(analysisIntervalRef.current);
+
+    if (analysisIntervalRef.current !== null) {
+      window.clearInterval(analysisIntervalRef.current);
       analysisIntervalRef.current = null;
     }
-    
+
     setIsActive(false);
     setCurrentEmotion(null);
     toast.info("Camera stopped");
@@ -107,20 +106,21 @@ export const EmotionDetector = () => {
 
   useEffect(() => {
     return () => {
+      // cleanup on unmount
       stopCamera();
     };
   }, []);
 
   const getEmotionColor = (emotion: string) => {
-    const colors = {
-      happy: 'emotion-happy',
-      sad: 'emotion-sad',
-      angry: 'emotion-angry',
-      surprised: 'emotion-surprised',
-      fearful: 'emotion-fearful',
-      neutral: 'emotion-neutral'
+    const colors: Record<string, string> = {
+      happy: "emotion-happy",
+      sad: "emotion-sad",
+      angry: "emotion-angry",
+      surprised: "emotion-surprised",
+      fearful: "emotion-fearful",
+      neutral: "emotion-neutral",
     };
-    return colors[emotion as keyof typeof colors] || 'emotion-neutral';
+    return colors[emotion] || "emotion-neutral";
   };
 
   return (
@@ -136,7 +136,7 @@ export const EmotionDetector = () => {
               <p className="text-muted-foreground">Analyze your emotional state through facial expressions</p>
             </div>
           </div>
-          
+
           <div className="flex gap-2">
             <Button
               variant={isActive ? "destructive" : "default"}
@@ -153,7 +153,7 @@ export const EmotionDetector = () => {
               )}
               {isAnalyzing ? "Starting..." : isActive ? "Stop Camera" : "Start Camera"}
             </Button>
-            
+
             {emotionHistory.length > 0 && (
               <Button variant="outline" onClick={resetAnalysis}>
                 <RotateCcw className="h-4 w-4" />
@@ -171,11 +171,11 @@ export const EmotionDetector = () => {
             muted
             playsInline
             className={`w-full h-64 object-cover transition-opacity duration-300 ${
-              isActive ? 'opacity-100' : 'opacity-0'
+              isActive ? "opacity-100" : "opacity-0"
             }`}
           />
           <canvas ref={canvasRef} className="hidden" />
-          
+
           {!isActive && (
             <div className="absolute inset-0 flex items-center justify-center bg-muted">
               <div className="text-center">
@@ -188,7 +188,7 @@ export const EmotionDetector = () => {
           {/* Current Emotion Overlay */}
           {currentEmotion && isActive && (
             <div className="absolute top-4 right-4">
-              <Badge 
+              <Badge
                 className={`text-lg px-4 py-2 ${getEmotionColor(currentEmotion.emotion)} border transition-smooth`}
               >
                 {currentEmotion.emotion.charAt(0).toUpperCase() + currentEmotion.emotion.slice(1)}
@@ -230,7 +230,9 @@ export const EmotionDetector = () => {
             {emotionHistory.slice(-10).map((emotion, index) => (
               <div
                 key={index}
-                className={`p-3 rounded-lg border text-center transition-smooth hover:scale-105 ${getEmotionColor(emotion.emotion)}`}
+                className={`p-3 rounded-lg border text-center transition-smooth hover:scale-105 ${getEmotionColor(
+                  emotion.emotion
+                )}`}
               >
                 <p className="font-medium capitalize">{emotion.emotion}</p>
                 <p className="text-xs opacity-75">{emotion.timestamp.toLocaleTimeString()}</p>
@@ -247,7 +249,7 @@ export const EmotionDetector = () => {
           <div>
             <h5 className="font-medium text-blue-900">How it works</h5>
             <p className="text-sm text-blue-700 mt-1">
-              Look directly at the camera with good lighting. The system analyzes your facial expressions 
+              Look directly at the camera with good lighting. The system analyzes your facial expressions
               every 2 seconds to detect your emotional state. Make sure your face is clearly visible.
             </p>
           </div>
@@ -256,3 +258,5 @@ export const EmotionDetector = () => {
     </div>
   );
 };
+
+export default EmotionDetector;

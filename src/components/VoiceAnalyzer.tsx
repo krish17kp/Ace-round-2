@@ -3,15 +3,19 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Mic, MicOff, Play, Pause, Square, Download, Trash2, Volume2 } from "lucide-react";
+import { Mic, Play, Pause, Square, Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface VoiceAnalysis {
   emotion: string;
   confidence: number;
-  sentiment: 'positive' | 'negative' | 'neutral';
-  energy: number;
+  sentiment: "positive" | "negative" | "neutral";
+  energy: number; // 0..100
   timestamp: Date;
+  // extra debug fields
+  rms?: number;
+  pitchHz?: number;
+  speechRate?: number;
 }
 
 interface Recording {
@@ -30,33 +34,126 @@ export const VoiceAnalyzer = () => {
   const [currentAnalysis, setCurrentAnalysis] = useState<VoiceAnalysis | null>(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
-  
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const recordingTimerRef = useRef<number | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
-  // Mock voice emotion analysis (replace with real ML model)
-  const analyzeVoice = useCallback((audioBlob: Blob): VoiceAnalysis => {
-    const emotions = ['happy', 'sad', 'angry', 'surprised', 'fearful', 'neutral'];
-    const sentiments = ['positive', 'negative', 'neutral'] as const;
-    
-    // Simulate complex voice analysis
-    const emotion = emotions[Math.floor(Math.random() * emotions.length)];
-    const confidence = 0.7 + Math.random() * 0.3;
-    const sentiment = sentiments[Math.floor(Math.random() * sentiments.length)];
-    const energy = Math.random() * 100;
+  // --------- DSP utils (ported from your Python script) ----------
+  const rms = (x: Float32Array) => {
+    let s = 0;
+    for (let i = 0; i < x.length; i++) s += x[i] * x[i];
+    return Math.sqrt(s / x.length);
+  };
 
+  const estimatePitchHz = (y: Float32Array, sr: number, fmin = 80, fmax = 400) => {
+    if (y.length === 0) return 0;
+    // remove DC
+    let mean = 0;
+    for (let i = 0; i < y.length; i++) mean += y[i];
+    mean /= y.length;
+    const x = new Float32Array(y.length);
+    for (let i = 0; i < y.length; i++) x[i] = y[i] - mean;
+
+    // autocorrelation (naive, but fine for short samples)
+    const corr = new Float32Array(x.length);
+    for (let lag = 0; lag < x.length; lag++) {
+      let sum = 0;
+      for (let i = 0; i + lag < x.length; i++) sum += x[i] * x[i + lag];
+      corr[lag] = sum;
+    }
+    const minLag = Math.floor(sr / fmax);
+    const maxLag = Math.min(Math.floor(sr / fmin), corr.length - 1);
+    for (let i = 0; i < minLag; i++) corr[i] = 0;
+
+    // find peak
+    let bestLag = 0;
+    let bestVal = -Infinity;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      if (corr[lag] > bestVal) {
+        bestVal = corr[lag];
+        bestLag = lag;
+      }
+    }
+    return bestLag > 0 ? sr / bestLag : 0;
+  };
+
+  const speechActivityRate = (y: Float32Array, sr: number, win = 512, hop = 256) => {
+    if (y.length < win) return 0;
+    const frames = Math.max(0, Math.floor((y.length - win) / hop) + 1);
+    const ste: number[] = [];
+    for (let i = 0; i < frames; i++) {
+      const s = i * hop;
+      const e = s + win;
+      let sum = 0;
+      for (let k = s; k < e; k++) {
+        const v = y[k] ?? 0;
+        sum += v * v;
+      }
+      ste.push(Math.sqrt(sum / win));
+    }
+    const median = (arr: number[]) => {
+      const a = [...arr].sort((a, b) => a - b);
+      const m = Math.floor(a.length / 2);
+      return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+    };
+    const thr = Math.max(0.02, median(ste) * 1.2);
+    const voiced = ste.reduce((acc, v) => acc + (v > thr ? 1 : 0), 0);
+    const duration = y.length / sr;
+    return duration > 0 ? voiced / duration : 0;
+  };
+
+  const guessEmotion = (pitch: number, loud: number, rate: number) => {
+    // Same heuristics as Python example
+    if (pitch > 220 && loud > 0.12 && rate > 8) return "excited / possibly angry";
+    if (pitch < 140 && loud < 0.07) return "sad / calm";
+    return "neutral";
+  };
+
+  const analyzeBlob = useCallback(async (blob: Blob): Promise<VoiceAnalysis> => {
+    // Decode to PCM using Web Audio
+    const ac = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+    const buf = await blob.arrayBuffer();
+    const audioBuffer = await ac.decodeAudioData(buf.slice(0)); // slice() fixes Safari DataClone
+
+    // Use channel 0 (mono analysis)
+    const ch = audioBuffer.numberOfChannels > 0 ? audioBuffer.getChannelData(0) : new Float32Array();
+    // Clamp to [-1, 1]
+    const y = new Float32Array(ch.length);
+    for (let i = 0; i < ch.length; i++) y[i] = Math.max(-1, Math.min(1, ch[i]));
+
+    const sr = audioBuffer.sampleRate;
+    const loud = rms(y);
+    const pitch = estimatePitchHz(y, sr, 80, 400);
+    const rate = speechActivityRate(y, sr, 512, 256);
+    const emotion = guessEmotion(pitch, loud, rate);
+
+    // map to your UI fields
+    const sentiment: "positive" | "negative" | "neutral" =
+      emotion.includes("excited") ? "positive" : emotion.includes("sad") ? "negative" : "neutral";
+
+    // normalize energy to 0..100 (simple scale)
+    const energy = Math.max(0, Math.min(100, Math.round(loud * 300)));
+
+    // a fake confidence just to fill the UI (you can improve later)
+    const confidence = Math.max(0.6, Math.min(0.95, 0.5 + loud + (rate / 20)));
+
+    ac.close().catch(() => {});
     return {
       emotion,
       confidence,
       sentiment,
       energy,
-      timestamp: new Date()
+      timestamp: new Date(),
+      rms: loud,
+      pitchHz: pitch,
+      speechRate: rate,
     };
   }, []);
+  // ---------------------------------------------------------------
 
   // Real-time audio level monitoring
   const monitorAudioLevel = useCallback(() => {
@@ -64,88 +161,96 @@ export const VoiceAnalyzer = () => {
 
     const analyser = analyserRef.current;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    
+
     const updateLevel = () => {
       analyser.getByteFrequencyData(dataArray);
-      const average = dataArray.reduce((sum, value) => sum + value) / dataArray.length;
+      const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
       setAudioLevel(average);
-      
+
       if (isRecording) {
         requestAnimationFrame(updateLevel);
       }
     };
-    
+
     updateLevel();
   }, [isRecording]);
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 44100
-        } 
+          sampleRate: 44100,
+        },
       });
-      
+
       streamRef.current = stream;
-      
+
       // Set up audio analysis
       audioContextRef.current = new AudioContext();
       analyserRef.current = audioContextRef.current.createAnalyser();
       const source = audioContextRef.current.createMediaStreamSource(stream);
       source.connect(analyserRef.current);
-      
       analyserRef.current.fftSize = 256;
-      
+
       // Set up media recorder
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
-      });
-      
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "";
+
+      const mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+
       const chunks: BlobPart[] = [];
-      
+
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data);
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        try {
+          const audioBlob = new Blob(chunks, { type: mime || "audio/webm" });
+          const audioUrl = URL.createObjectURL(audioBlob);
+
+          // ✨ Real analysis (ported from Python)
+          const analysis = await analyzeBlob(audioBlob);
+
+          const recording: Recording = {
+            id: Date.now().toString(),
+            blob: audioBlob,
+            url: audioUrl,
+            duration: recordingTime,
+            analysis,
+            timestamp: new Date(),
+          };
+
+          setRecordings((prev) => [recording, ...prev]);
+          setCurrentAnalysis(analysis);
+          toast.success("Voice analysis complete!");
+        } catch (e) {
+          console.error(e);
+          toast.error("Analysis failed");
         }
       };
-      
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const analysis = analyzeVoice(audioBlob);
-        
-        const recording: Recording = {
-          id: Date.now().toString(),
-          blob: audioBlob,
-          url: audioUrl,
-          duration: recordingTime,
-          analysis,
-          timestamp: new Date()
-        };
-        
-        setRecordings(prev => [recording, ...prev]);
-        setCurrentAnalysis(analysis);
-        toast.success("Voice analysis complete!");
-      };
-      
+
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingTime(0);
-      
+
       // Start timer
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
       }, 1000);
-      
+
       // Start audio level monitoring
       monitorAudioLevel();
-      
+
       toast.success("Recording started!");
     } catch (error) {
-      console.error('Error accessing microphone:', error);
+      console.error("Error accessing microphone:", error);
       toast.error("Microphone access denied. Please allow microphone permissions.");
     }
   };
@@ -155,15 +260,16 @@ export const VoiceAnalyzer = () => {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setAudioLevel(0);
-      
+
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
       }
-      
+
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
-      
+
       if (audioContextRef.current) {
         audioContextRef.current.close();
       }
@@ -174,16 +280,16 @@ export const VoiceAnalyzer = () => {
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
     }
-    
+
     const audio = new Audio(recording.url);
     audioPlayerRef.current = audio;
-    
+
     audio.onplay = () => setIsPlaying(true);
     audio.onpause = () => setIsPlaying(false);
     audio.onended = () => setIsPlaying(false);
-    
-    audio.play().catch(error => {
-      console.error('Error playing audio:', error);
+
+    audio.play().catch((error) => {
+      console.error("Error playing audio:", error);
       toast.error("Failed to play recording");
     });
   };
@@ -195,19 +301,17 @@ export const VoiceAnalyzer = () => {
   };
 
   const deleteRecording = (id: string) => {
-    setRecordings(prev => {
-      const updated = prev.filter(r => r.id !== id);
-      const deleted = prev.find(r => r.id === id);
-      if (deleted) {
-        URL.revokeObjectURL(deleted.url);
-      }
+    setRecordings((prev) => {
+      const updated = prev.filter((r) => r.id !== id);
+      const deleted = prev.find((r) => r.id === id);
+      if (deleted) URL.revokeObjectURL(deleted.url);
       return updated;
     });
     toast.success("Recording deleted");
   };
 
   const downloadRecording = (recording: Recording) => {
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = recording.url;
     a.download = `voice-recording-${recording.timestamp.toISOString().slice(0, 19)}.webm`;
     document.body.appendChild(a);
@@ -218,35 +322,37 @@ export const VoiceAnalyzer = () => {
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   const getEmotionColor = (emotion: string) => {
-    const colors = {
-      happy: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-      sad: 'bg-blue-100 text-blue-800 border-blue-300',
-      angry: 'bg-red-100 text-red-800 border-red-300',
-      surprised: 'bg-purple-100 text-purple-800 border-purple-300',
-      fearful: 'bg-orange-100 text-orange-800 border-orange-300',
-      neutral: 'bg-gray-100 text-gray-800 border-gray-300'
+    const colors: Record<string, string> = {
+      "excited / possibly angry": "bg-red-100 text-red-800 border-red-300",
+      "sad / calm": "bg-blue-100 text-blue-800 border-blue-300",
+      neutral: "bg-gray-100 text-gray-800 border-gray-300",
+      happy: "bg-yellow-100 text-yellow-800 border-yellow-300", // legacy badges
+      angry: "bg-red-100 text-red-800 border-red-300",
+      surprised: "bg-purple-100 text-purple-800 border-purple-300",
+      fearful: "bg-orange-100 text-orange-800 border-orange-300",
     };
-    return colors[emotion as keyof typeof colors] || colors.neutral;
+    return colors[emotion] || colors["neutral"];
   };
 
   const getSentimentColor = (sentiment: string) => {
-    const colors = {
-      positive: 'text-green-600',
-      negative: 'text-red-600',
-      neutral: 'text-gray-600'
+    const colors: Record<string, string> = {
+      positive: "text-green-600",
+      negative: "text-red-600",
+      neutral: "text-gray-600",
     };
-    return colors[sentiment as keyof typeof colors] || colors.neutral;
+    return colors[sentiment] || colors.neutral;
   };
 
   useEffect(() => {
     return () => {
       stopRecording();
-      recordings.forEach(recording => URL.revokeObjectURL(recording.url));
+      recordings.forEach((r) => URL.revokeObjectURL(r.url));
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -269,7 +375,10 @@ export const VoiceAnalyzer = () => {
                       key={i}
                       className="w-3 bg-primary rounded-t transition-all duration-150"
                       style={{
-                        height: `${Math.max(4, (audioLevel / 255) * 64 * (1 + Math.sin((Date.now() / 100) + i) * 0.5))}px`
+                        height: `${Math.max(
+                          4,
+                          (audioLevel / 255) * 64 * (1 + Math.sin(Date.now() / 100 + i) * 0.5)
+                        )}px`,
                       }}
                     />
                   ))}
@@ -339,6 +448,12 @@ export const VoiceAnalyzer = () => {
               </div>
             </div>
           </div>
+
+          {/* Optional debug line for judges */}
+          <p className="mt-4 text-xs text-muted-foreground">
+            rms:{currentAnalysis.rms?.toFixed(3)} | pitch:{currentAnalysis.pitchHz?.toFixed(1)} Hz | speech-rate:
+            {currentAnalysis.speechRate?.toFixed(1)} fr/s
+          </p>
         </Card>
       )}
 
@@ -351,23 +466,18 @@ export const VoiceAnalyzer = () => {
               <div key={recording.id} className="p-4 border rounded-lg bg-background/50">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => playRecording(recording)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => playRecording(recording)}>
                       <Play className="h-4 w-4" />
                     </Button>
-                    
+
                     <div>
                       <p className="font-medium">
-                        {recording.timestamp.toLocaleDateString()} at {recording.timestamp.toLocaleTimeString()}
+                        {recording.timestamp.toLocaleDateString()} at{" "}
+                        {recording.timestamp.toLocaleTimeString()}
                       </p>
-                      <p className="text-sm text-muted-foreground">
-                        Duration: {formatTime(recording.duration)}
-                      </p>
+                      <p className="text-sm text-muted-foreground">Duration: {formatTime(recording.duration)}</p>
                     </div>
-                    
+
                     <div className="flex gap-2">
                       <Badge className={`${getEmotionColor(recording.analysis.emotion)} border text-xs`}>
                         {recording.analysis.emotion}
@@ -377,20 +487,12 @@ export const VoiceAnalyzer = () => {
                       </Badge>
                     </div>
                   </div>
-                  
+
                   <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => downloadRecording(recording)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => downloadRecording(recording)}>
                       <Download className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => deleteRecording(recording.id)}
-                    >
+                    <Button variant="destructive" size="sm" onClick={() => deleteRecording(recording.id)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

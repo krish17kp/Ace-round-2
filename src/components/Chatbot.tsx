@@ -1,277 +1,238 @@
-import { useState, useRef, useEffect } from "react";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import React, { useState, useRef, useEffect } from "react";
 import { 
   MessageCircle, 
   Send, 
   Bot, 
   User, 
   Heart,
+  BookOpen,
+  Wind,
+  Smile,
+  BarChart2,
+  CheckSquare,
+  Repeat,
+  Quote,
   MapPin,
-  Phone,
-  Mic,
-  MicOff
+  Globe
 } from "lucide-react";
 
-interface Message {
-  id: number;
-  text: string;
-  sender: 'user' | 'bot';
-  timestamp: Date;
-  isTyping?: boolean;
-}
+// --- Mock UI Components ---
+const Card = ({ className, ...props }) => <div {...props} className={`border rounded-xl shadow-sm bg-white ${className}`} />;
+const Button = ({ className, variant, size, ...props }) => {
+    const base = "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none";
+    const sizeClasses = { icon: "h-10 w-10", sm: "h-9 px-3", default: "h-10 px-4 py-2" };
+    const variantClasses = {
+        hero: "bg-indigo-600 text-white hover:bg-indigo-700",
+        outline: "border-gray-300 bg-transparent hover:bg-gray-100",
+        ghost: "hover:bg-gray-100",
+    };
+    return <button {...props} className={`${base} ${sizeClasses[size] || sizeClasses.default} ${variantClasses[variant] || 'bg-indigo-600 text-white hover:bg-indigo-700'} ${className}`} />;
+};
+const Input = (props) => <input {...props} className={`flex h-10 w-full rounded-md border border-gray-300 bg-transparent px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${props.className}`} />;
+
+// --- Data ---
+
+const CLINIC_DATA = [
+    { name: "Total Health", rating: 5.0, specialty: "Psychologist", address: "B wing, Viral Appts, Swami Vivekananda Rd, opp. Shoppers Stop", phone: "09967843249", quote: "Exceptional care for depression and other mental health issues.", website: "#" },
+    { name: "Omni Health Services", rating: 4.8, specialty: "Psychologist", address: "Office No. 303, Unique House, Chakala Rd", phone: "09653677486", quote: "Qualified professionals, great clinic ambiance and excellent care.", website: "#" },
+    { name: "Amaha Mental Health Centre", rating: 4.8, specialty: "Psychologist", address: "Unit 601, 6th floor, Notan Heights, 20, Gurunanak Rd", phone: "02071171501", quote: "A safe space with expert therapists.", website: "#" },
+    { name: "Dr Jayesh Ghodke - Mind Clinic", rating: 4.9, specialty: "Psychiatrist", address: "EXPRESS ZONE, Mall, off Western Express Highway", phone: "07654782669", quote: "Collaborative approach ensured comprehensive mental health care.", website: "#" },
+    { name: "Harmony Mind Clinic", rating: 5.0, specialty: "Psychologist", address: "19th Floor, Panchratna Building, near Opera House", phone: "09326652219", quote: "Best Psychiatrists in Mumbai for various treatments.", website: "#" },
+    { name: "Dr. Amitabh Ghosh", rating: 4.9, specialty: "Psychiatrist", address: "VITATSU Healthcare, B-107, Twin Towers, Lokhandwala", phone: "09820199503", quote: "Helped my family to overcome emotional trauma.", website: "#" },
+    { name: "Trijog", rating: 4.8, specialty: "Psychologist", address: "B-Wing, 406, Powai Plaza, opp. Nirvana Park", phone: "09619196949", quote: "The counselling sessions really helped me with my mental health struggles.", website: "#" },
+    { name: "Astitva Clinic", rating: 4.7, specialty: "Psychologist", address: "Krishna Niwas, 522/B, R P Masani Marg", phone: "09136008076", quote: "They have a good grasp on human psychology and mental health.", website: "#" },
+];
+
+const dailyCheckinQuestions = [
+    "What is one thing you're looking forward to today?",
+    "What's a small act of kindness you could do for yourself today?",
+    "If you could describe your current mood as a color, what would it be and why?",
+];
+
+const moodColors = {
+    happy: 'bg-yellow-400', sad: 'bg-blue-500', anxious: 'bg-purple-500',
+    angry: 'bg-red-500', stressed: 'bg-orange-500', grateful: 'bg-green-500',
+};
+
+const botResponses = {
+    emotions: {
+        happy: { acknowledgement: "I'm so glad to hear you're feeling happy! Let's celebrate that joy together.", library: { songs: ["Happy – Pharrell Williams"], books: ["The Happiness Project – Gretchen Rubin"], exercises: ["Dance to your favorite upbeat song."], affirmations: ["I deserve to feel this joy."] }},
+        sad: { acknowledgement: "It's okay to feel sad. Acknowledging your feelings is a brave first step. I'm here to sit with you in this feeling.", library: { songs: ["Fix You – Coldplay"], books: ["The Midnight Library – Matt Haig"], exercises: ["Write down 3 things you’re grateful for."], affirmations: ["My feelings are valid and they will pass."] }},
+        anxious: { acknowledgement: "I can sense your anxiety. Let’s slow down together and find calm.", library: { songs: ["Weightless – Marconi Union"], books: ["The Untethered Soul – Michael A. Singer"], exercises: ["Try the 4-7-8 breathing technique."], affirmations: ["This feeling is temporary and I am safe."] }},
+        stressed: { acknowledgement: "I hear that you're stressed. Let's find a way to lighten that burden together.", library: { songs: ["Breathe Me – Sia"], books: ["Burnout: The Secret to Unlocking the Stress Cycle"], exercises: ["Take 5 deep belly breaths."], affirmations: ["I can handle the challenges that come my way."] }},
+        angry: { acknowledgement: "Anger is a powerful emotion. Let’s channel it safely and calmly.", library: { songs: ["Numb – Linkin Park"], books: ["Anger: Wisdom for Cooling the Flames"], exercises: ["Punch a pillow safely."], affirmations: ["I can feel my anger without letting it control me."] }}
+    },
+    followUp: "Would you like me to suggest another song, book, or exercise?"
+};
+
+// --- Child Component for Clinic Cards ---
+const ClinicCard = ({ clinic }) => (
+    <Card className="p-4 my-2 border-indigo-200 bg-indigo-50 w-full max-w-sm">
+        <h4 className="font-bold text-indigo-800">{clinic.name}</h4>
+        <p className="text-sm text-indigo-700 font-semibold">{clinic.specialty} ★ {clinic.rating}</p>
+        <p className="text-sm text-gray-600 mt-1 italic">"{clinic.quote}"</p>
+        <p className="text-xs text-gray-500 mt-2 flex items-start gap-1"><MapPin size={14} className="mt-0.5 shrink-0"/> {clinic.address}</p>
+        <div className="flex gap-2 mt-3">
+            <Button size="sm" variant="outline" onClick={() => window.open(clinic.website, '_blank')} className="w-full bg-white"><Globe size={14} className="mr-2"/>Website</Button>
+            <Button size="sm" variant="outline" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clinic.address)}`, '_blank')} className="w-full bg-white"><MapPin size={14} className="mr-2"/>Directions</Button>
+        </div>
+    </Card>
+);
+
 
 export const Chatbot = () => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 1,
-      text: "Hello! I'm your emotional wellness companion. How are you feeling today? I'm here to listen and provide support.",
-      sender: 'bot',
-      timestamp: new Date()
-    }
-  ]);
-  const [inputValue, setInputValue] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+    const [messages, setMessages] = useState([]);
+    const [inputValue, setInputValue] = useState("");
+    const [isTyping, setIsTyping] = useState(false);
+    const [activeEmotion, setActiveEmotion] = useState(null);
+    const [usedSuggestions, setUsedSuggestions] = useState({});
+    const [moodHistory, setMoodHistory] = useState([]);
+    const [dailyCheckinQuestion, setDailyCheckinQuestion] = useState("");
+    const [currentAffirmation, setCurrentAffirmation] = useState("You are capable of amazing things.");
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+    const messagesEndRef = useRef(null);
+    const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    useEffect(() => {
+        setDailyCheckinQuestion(dailyCheckinQuestions[Math.floor(Math.random() * dailyCheckinQuestions.length)]);
+        setMessages([{ 
+            id: Date.now(), 
+            text: "Hello! Welcome to your wellness space. How are you feeling today?", 
+            sender: 'bot',
+            suggestions: ["I'm feeling happy", "I'm feeling sad", "I'm feeling anxious", "Find a local clinic"]
+        }]);
+    }, []);
 
-  const botResponses = {
-    greetings: [
-      "Hello! I'm here to support your emotional wellness journey. What's on your mind?",
-      "Hi there! How are you feeling today? I'm here to listen.",
-      "Welcome! I'm your emotional wellness companion. How can I help you today?"
-    ],
-    emotions: {
-      sad: "I understand you're feeling sad. It's completely normal to have these feelings. Would you like to talk about what's causing these feelings?",
-      happy: "I'm so glad to hear you're feeling happy! That's wonderful. What's bringing you joy today?",
-      anxious: "Anxiety can be challenging. Let's work through this together. Try taking three deep breaths with me. What's causing you to feel anxious?",
-      stressed: "Stress is very common. You're not alone in feeling this way. What specific situations are causing you stress right now?",
-      angry: "I hear that you're feeling angry. These feelings are valid. What's triggering these emotions?",
-      lonely: "Feeling lonely can be really difficult. I'm here with you right now. Would you like to talk about ways to connect with others?"
-    },
-    clinic: "I can help you find mental health support in your area. Let me search for nearby clinics and counselors for you.",
-    meditation: "Mindfulness can be very helpful. Try this: Close your eyes, take a deep breath in for 4 counts, hold for 4, then exhale for 4. How does that feel?",
-    default: "I understand. Tell me more about how you're feeling. I'm here to listen without judgment."
-  };
+    useEffect(scrollToBottom, [messages]);
 
-  const detectEmotion = (text: string): string => {
-    const lowerText = text.toLowerCase();
-    if (lowerText.includes('sad') || lowerText.includes('down') || lowerText.includes('depressed')) return 'sad';
-    if (lowerText.includes('happy') || lowerText.includes('joy') || lowerText.includes('great')) return 'happy';
-    if (lowerText.includes('anxious') || lowerText.includes('worry') || lowerText.includes('nervous')) return 'anxious';
-    if (lowerText.includes('stress') || lowerText.includes('overwhelm') || lowerText.includes('pressure')) return 'stressed';
-    if (lowerText.includes('angry') || lowerText.includes('mad') || lowerText.includes('furious')) return 'angry';
-    if (lowerText.includes('lonely') || lowerText.includes('alone') || lowerText.includes('isolated')) return 'lonely';
-    return 'default';
-  };
-
-  const generateResponse = (userMessage: string): string => {
-    const lowerMessage = userMessage.toLowerCase();
-    
-    if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
-      return botResponses.greetings[Math.floor(Math.random() * botResponses.greetings.length)];
-    }
-    
-    if (lowerMessage.includes('clinic') || lowerMessage.includes('therapist') || lowerMessage.includes('counselor') || lowerMessage.includes('help')) {
-      return botResponses.clinic;
-    }
-    
-    if (lowerMessage.includes('meditat') || lowerMessage.includes('calm') || lowerMessage.includes('relax')) {
-      return botResponses.meditation;
-    }
-    
-    const emotion = detectEmotion(userMessage);
-    return botResponses.emotions[emotion as keyof typeof botResponses.emotions] || botResponses.default;
-  };
-
-  const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
-
-    const userMessage: Message = {
-      id: Date.now(),
-      text: inputValue,
-      sender: 'user',
-      timestamp: new Date()
+    const getNextSuggestion = (emotion, type) => {
+        const library = botResponses.emotions[emotion].library[type];
+        return library[Math.floor(Math.random() * library.length)];
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputValue("");
-    setIsTyping(true);
+    const detectIntent = (text) => {
+        const lowerText = text.toLowerCase();
+        for (const emotion in botResponses.emotions) {
+            if (lowerText.includes(emotion)) return { type: 'emotion', value: emotion };
+        }
+        if (['clinic', 'therapist', 'help', 'doctor', 'psychiatrist'].some(s => lowerText.includes(s))) {
+            return { type: 'clinic', value: null };
+        }
+        if (['song', 'book', 'exercise', 'affirmation'].some(s => lowerText.includes(s))) {
+            const type = lowerText.includes('song') ? 'songs' : lowerText.includes('book') ? 'books' : lowerText.includes('exercise') ? 'exercises' : 'affirmations';
+            return { type: 'request', value: type };
+        }
+        return { type: 'unknown', value: null };
+    };
+    
+    const addBotMessage = (text, { suggestions = [], clinics = [] } = {}) => {
+        setMessages(prev => [...prev, { id: Date.now(), text, sender: 'bot', suggestions, clinics }]);
+        setIsTyping(false);
+    };
 
-    // Simulate typing delay
-    setTimeout(() => {
-      const botResponse: Message = {
-        id: Date.now() + 1,
-        text: generateResponse(inputValue),
-        sender: 'bot',
-        timestamp: new Date()
-      };
+    const handleSendMessage = (textOverride = "") => {
+        const text = (textOverride || inputValue).trim();
+        if (!text) return;
 
-      setMessages(prev => [...prev, botResponse]);
-      setIsTyping(false);
-    }, 1500);
-  };
+        setMessages(prev => [...prev, { id: Date.now(), text, sender: 'user' }]);
+        setInputValue("");
+        setIsTyping(true);
 
-  const toggleVoiceInput = () => {
-    setIsListening(!isListening);
-    // Voice input implementation would go here
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSendMessage();
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <Card className="p-6 gradient-card shadow-emotion text-center relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-primary-glow/10" />
-        <div className="relative z-10">
-          <div className="flex justify-center mb-6">
-            <div className="p-4 rounded-full gradient-wellness shadow-glow">
-              <MessageCircle className="h-12 w-12 text-white" />
-            </div>
-          </div>
-          
-          <h1 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-primary to-primary-glow bg-clip-text text-transparent">
-            AI Wellness Companion
-          </h1>
-          
-          <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-            Your empathetic AI companion for emotional support, guidance, and mental wellness resources.
-          </p>
-          
-          <div className="flex flex-wrap gap-2 justify-center">
-            <Badge variant="outline" className="flex items-center gap-2">
-              <Heart className="h-4 w-4" />
-              Empathetic AI
-            </Badge>
-            <Badge variant="outline" className="flex items-center gap-2">
-              <MapPin className="h-4 w-4" />
-              Clinic Finder
-            </Badge>
-            <Badge variant="outline" className="flex items-center gap-2">
-              <Phone className="h-4 w-4" />
-              24/7 Support
-            </Badge>
-          </div>
-        </div>
-      </Card>
-
-      {/* Chat Interface */}
-      <Card className="gradient-card shadow-emotion">
-        <div className="h-[600px] flex flex-col">
-          {/* Messages Area */}
-          <div className="flex-1 p-6 overflow-y-auto space-y-4">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex items-start gap-3 ${
-                  message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'
-                }`}
-              >
-                <div className={`p-2 rounded-full ${
-                  message.sender === 'user' 
-                    ? 'bg-primary text-primary-foreground' 
-                    : 'gradient-wellness'
-                }`}>
-                  {message.sender === 'user' ? (
-                    <User className="h-5 w-5 text-white" />
-                  ) : (
-                    <Bot className="h-5 w-5 text-white" />
-                  )}
-                </div>
+        setTimeout(() => {
+            const intent = detectIntent(text);
+            if (intent.type === 'emotion') {
+                const emotion = intent.value;
+                setActiveEmotion(emotion);
+                if (!moodHistory.includes(emotion)) {
+                    setMoodHistory(prev => [...prev, emotion]);
+                }
+                setCurrentAffirmation(getNextSuggestion(emotion, 'affirmations'));
                 
-                <div className={`max-w-[80%] ${
-                  message.sender === 'user' ? 'text-right' : 'text-left'
-                }`}>
-                  <Card className={`p-4 ${
-                    message.sender === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-background border-muted'
-                  }`}>
-                    <p className="text-sm">{message.text}</p>
-                  </Card>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {message.timestamp.toLocaleTimeString([], { 
-                      hour: '2-digit', 
-                      minute: '2-digit' 
-                    })}
-                  </p>
-                </div>
-              </div>
-            ))}
-            
-            {isTyping && (
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-full gradient-wellness">
-                  <Bot className="h-5 w-5 text-white" />
-                </div>
-                <Card className="p-4 bg-background border-muted">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                    <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                  </div>
-                </Card>
-              </div>
-            )}
-            
-            <div ref={messagesEndRef} />
-          </div>
+                const ack = botResponses.emotions[emotion].acknowledgement;
+                const suggestions = Object.keys(botResponses.emotions[emotion].library).map(s => `Suggest a ${s.slice(0, -1)}`);
+                addBotMessage(`${ack} What kind of support would feel best?`, { suggestions });
 
-          {/* Input Area */}
-          <div className="p-6 border-t bg-background/50">
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={toggleVoiceInput}
-                className={isListening ? 'bg-red-50 border-red-200' : ''}
-              >
-                {isListening ? (
-                  <MicOff className="h-4 w-4 text-red-500" />
-                ) : (
-                  <Mic className="h-4 w-4" />
-                )}
-              </Button>
-              
-              <Input
-                placeholder="Type your message here..."
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyPress={handleKeyPress}
-                className="flex-1"
-              />
-              
-              <Button 
-                onClick={handleSendMessage}
-                disabled={!inputValue.trim()}
-                variant="hero"
-                size="icon"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
+            } else if (intent.type === 'request' && activeEmotion) {
+                const suggestion = getNextSuggestion(activeEmotion, intent.value);
+                const suggestions = Object.keys(botResponses.emotions[activeEmotion].library).map(s => `Suggest a ${s.slice(0, -1)}`);
+                addBotMessage(`Of course. Here is a suggestion: "${suggestion}". ${botResponses.followUp}`, { suggestions });
             
-            <p className="text-xs text-muted-foreground mt-2 text-center">
-              Press Enter to send • Click mic for voice input
-            </p>
-          </div>
+            } else if (intent.type === 'clinic') {
+                const shuffledClinics = [...CLINIC_DATA].sort(() => 0.5 - Math.random());
+                const selectedClinics = shuffledClinics.slice(0, 3);
+                addBotMessage("It takes courage to seek professional support. Here are a few highly-rated clinics in Mumbai that might be a good fit for you:", { clinics: selectedClinics });
+
+            } else {
+                addBotMessage("I'm here to listen. Tell me a bit more about what's on your mind or ask for help finding a clinic.");
+            }
+        }, 1200);
+    };
+    
+    return (
+        <div className="p-4 rounded-lg bg-gray-50 font-sans">
+            <header className="text-center mb-4">
+                <h1 className="text-3xl font-bold text-gray-800">Your Wellness Companion</h1>
+                <p className="text-gray-500">A safe space to reflect and grow.</p>
+            </header>
+            
+            <Card className="mb-4 p-4 bg-indigo-50 border-indigo-200 animate-fade-in">
+                <div className="flex items-center gap-3">
+                    <CheckSquare className="text-indigo-600 h-6 w-6"/>
+                    <div>
+                        <h3 className="font-semibold text-indigo-800">Daily Check-in</h3>
+                        <p className="text-sm text-indigo-700">{dailyCheckinQuestion}</p>
+                    </div>
+                </div>
+            </Card>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
+                    <Card className="h-[600px] flex flex-col">
+                        <div className="flex-1 p-4 overflow-y-auto space-y-4">
+                            {messages.map((msg, i) => (
+                                <div key={msg.id} className={`flex items-start gap-3 ${msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'} animate-fade-in`}>
+                                    <div className={`p-2 rounded-full text-white ${msg.sender === 'user' ? 'bg-indigo-600' : 'bg-gray-400'}`}>
+                                        {msg.sender === 'user' ? <User size={20} /> : <Bot size={20} />}
+                                    </div>
+                                    <div className={`flex flex-col gap-1 w-full items-${msg.sender === 'user' ? 'end' : 'start'}`}>
+                                        <div className={`p-3 rounded-lg max-w-[85%] ${msg.sender === 'user' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800'}`}>
+                                            <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                                        </div>
+                                        {msg.suggestions?.length > 0 && <div className="flex flex-wrap gap-2 mt-2 max-w-[85%]">{msg.suggestions.map(s => <Button key={s} size="sm" variant="outline" onClick={() => handleSendMessage(s)}>{s}</Button>)}</div>}
+                                        {msg.clinics?.length > 0 && <div className="flex flex-col gap-2 mt-2 w-full">{msg.clinics.map(c => <ClinicCard key={c.name} clinic={c} />)}</div>}
+                                    </div>
+                                </div>
+                            ))}
+                            {isTyping && <div className="text-sm text-gray-500 self-center animate-pulse">Companion is typing...</div>}
+                            <div ref={messagesEndRef} />
+                        </div>
+                        <div className="p-4 border-t bg-white">
+                            <div className="flex gap-2">
+                                <Input placeholder="How are you feeling right now?" value={inputValue} onChange={e => setInputValue(e.target.value)} onKeyPress={e => e.key === 'Enter' && handleSendMessage()} />
+                                <Button onClick={() => handleSendMessage()} disabled={!inputValue.trim() || isTyping} variant="hero" size="icon"><Send size={20} /></Button>
+                            </div>
+                        </div>
+                    </Card>
+                </div>
+                <div className="space-y-4">
+                     <Card className="p-4 animate-fade-in">
+                        <h3 className="font-semibold mb-2 flex items-center gap-2 text-gray-700"><Quote size={18} /> Affirmation of the Moment</h3>
+                        <p className="text-indigo-700 italic text-center p-2 bg-indigo-50 rounded-lg">"{currentAffirmation}"</p>
+                    </Card>
+                    <Card className="p-4 animate-fade-in">
+                        <h3 className="font-semibold mb-2 flex items-center gap-2 text-gray-700"><BarChart2 size={18} /> Mood Journey</h3>
+                        <div className="flex flex-wrap gap-2">
+                            {moodHistory.length > 0 ? moodHistory.map((mood, i) => (
+                                <div key={i} className={`px-3 py-1 text-sm text-white rounded-full flex items-center gap-1 animate-fade-in ${moodColors[mood]}`}>
+                                    {mood}
+                                </div>
+                            )) : <p className="text-sm text-gray-500">Your session moods will appear here.</p>}
+                        </div>
+                    </Card>
+                </div>
+            </div>
         </div>
-      </Card>
-    </div>
-  );
+    );
 };
+
+export default Chatbot;
